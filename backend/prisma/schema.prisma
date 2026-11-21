@@ -1,0 +1,316 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleName {
+  ADMIN
+  MONITOR
+  STUDENT
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+enum SessionStatus {
+  OPEN
+  SUBMITTED
+}
+
+enum CorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        RoleName @unique
+  description String?
+  users       User[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("roles")
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String
+  fullName          String
+  roleId            Int
+  role              Role      @relation(fields: [roleId], references: [id])
+  isActive          Boolean   @default(true)
+  language          String    @default("en")
+  theme             String    @default("light")
+  refreshTokenHash  String?
+  resetTokenHash    String?
+  resetTokenExpires DateTime?
+  lastLoginAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  student              Student?
+  monitor              ClassMonitor?
+  auditLogs            AuditLog[]
+  notifications        Notification[]
+  announcements        Announcement[]
+  sessionsCreated      AttendanceSession[]           @relation("SessionCreator")
+  sessionsSubmitted    AttendanceSession[]           @relation("SessionSubmitter")
+  recordsRecorded      AttendanceRecord[]
+  correctionsRequested AttendanceCorrectionRequest[] @relation("CorrectionRequester")
+  correctionsReviewed  AttendanceCorrectionRequest[] @relation("CorrectionReviewer")
+
+  @@index([roleId])
+  @@map("users")
+}
+
+model Student {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studentCode String    @unique
+  gender      String?
+  phone       String?
+  address     String?
+  dateOfBirth DateTime? @db.Date
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  classes ClassStudent[]
+  records AttendanceRecord[]
+
+  @@map("students")
+}
+
+model ClassMonitor {
+  id                      String   @id @default(cuid())
+  userId                  String   @unique
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classId                 String
+  class                   Class    @relation(fields: [classId], references: [id])
+  canPublishAnnouncements Boolean  @default(true)
+  canExportReports        Boolean  @default(true)
+  canRequestCorrections   Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([classId])
+  @@map("class_monitors")
+}
+
+model AcademicYear {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  startDate DateTime   @db.Date
+  endDate   DateTime   @db.Date
+  isCurrent Boolean    @default(false)
+  semesters Semester[]
+  classes   Class[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("academic_years")
+}
+
+model Semester {
+  id             String       @id @default(cuid())
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  name           String
+  startDate      DateTime     @db.Date
+  endDate        DateTime     @db.Date
+  isCurrent      Boolean      @default(false)
+  classes        Class[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([academicYearId, name])
+  @@map("semesters")
+}
+
+model Class {
+  id             String       @id @default(cuid())
+  code           String       @unique
+  name           String
+  description    String?
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
+  semesterId     String?
+  semester       Semester?    @relation(fields: [semesterId], references: [id])
+  archived       Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  students      ClassStudent[]
+  monitors      ClassMonitor[]
+  schedule      ClassSession[]
+  sessions      AttendanceSession[]
+  announcements Announcement[]
+
+  @@index([academicYearId])
+  @@map("classes")
+}
+
+model ClassStudent {
+  id        String   @id @default(cuid())
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([classId, studentId])
+  @@index([studentId])
+  @@map("class_students")
+}
+
+// Weekly timetable slot of a class (the "class schedule").
+model ClassSession {
+  id        String   @id @default(cuid())
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subject   String
+  dayOfWeek Int // ISO: 1 = Monday ... 7 = Sunday
+  sessionNo Int      @default(1)
+  startTime String // HH:mm (school timezone)
+  endTime   String
+  room      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([classId, dayOfWeek, sessionNo])
+  @@map("class_sessions")
+}
+
+model AttendanceSession {
+  id            String        @id @default(cuid())
+  classId       String
+  class         Class         @relation(fields: [classId], references: [id])
+  date          DateTime      @db.Date
+  sessionNo     Int           @default(1)
+  subject       String?
+  startTime     String? // HH:mm, used by the late-arrival rule
+  status        SessionStatus @default(OPEN)
+  createdById   String
+  createdBy     User          @relation("SessionCreator", fields: [createdById], references: [id])
+  submittedById String?
+  submittedBy   User?         @relation("SessionSubmitter", fields: [submittedById], references: [id])
+  submittedAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  records AttendanceRecord[]
+
+  @@unique([classId, date, sessionNo])
+  @@index([date])
+  @@index([status])
+  @@map("attendance_sessions")
+}
+
+model AttendanceRecord {
+  id           String            @id @default(cuid())
+  sessionId    String
+  session      AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId    String
+  student      Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  status       AttendanceStatus
+  checkInTime  String? // HH:mm
+  remarks      String?
+  recordedById String
+  recordedBy   User              @relation(fields: [recordedById], references: [id])
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  corrections AttendanceCorrectionRequest[]
+
+  @@unique([sessionId, studentId])
+  @@index([studentId])
+  @@index([status])
+  @@map("attendance_records")
+}
+
+model AttendanceCorrectionRequest {
+  id              String           @id @default(cuid())
+  recordId        String
+  record          AttendanceRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  requestedById   String
+  requestedBy     User             @relation("CorrectionRequester", fields: [requestedById], references: [id])
+  requestedStatus AttendanceStatus
+  reason          String
+  status          CorrectionStatus @default(PENDING)
+  reviewedById    String?
+  reviewedBy      User?            @relation("CorrectionReviewer", fields: [reviewedById], references: [id])
+  reviewNote      String?
+  reviewedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([recordId])
+  @@index([status])
+  @@map("attendance_correction_requests")
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  classId   String? // null = whole school
+  class     Class?   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([classId])
+  @@map("announcements")
+}
+
+// `type` + `params` are translated on the client, so notifications follow the UI language.
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  params    Json     @default("{}")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  before    Json?
+  after     Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
