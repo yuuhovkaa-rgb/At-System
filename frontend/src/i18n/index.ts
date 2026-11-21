@@ -1,7 +1,7 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import en from './en.json';
-import kh from './kh.json';
+import kh from './km.json';
 
 export const LANGS = [{ code: 'en', label: 'English', short: 'EN' }, { code: 'kh', label: 'ខ្មែរ', short: 'KH' }] as const;
 const saved = (() => { try { return localStorage.getItem('at.lang'); } catch { return null; } })();

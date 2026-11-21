@@ -70,7 +70,7 @@ function Notifications() {
           <div className="max-h-80 overflow-y-auto">
             {!q.data?.items.length ? <p className="px-3 py-8 text-center text-sm text-slate-400">{t('notif.empty')}</p> : q.data.items.map((n: any) => (
               <button key={n.id} onClick={() => !n.isRead && read.mutate(n.id)} className={clsx('block w-full rounded-lg px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-navy-700', !n.isRead && 'bg-brand-50/60 dark:bg-brand-900/20')}>
-                <p className="text-sm">{t(`notif.${n.type}`, { ...n.params, defaultValue: n.type })}</p><p className="mt-0.5 text-xs text-slate-400">{fmtDateTime(n.createdAt)}</p>
+                <p className="text-sm">{String(t(`notif.${n.type}`, { ...n.params, defaultValue: n.type }))}</p><p className="mt-0.5 text-xs text-slate-400">{fmtDateTime(n.createdAt)}</p>
               </button>))}
           </div>
         </div>
